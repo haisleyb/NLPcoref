@@ -10,11 +10,7 @@ class coref:
         self.sentences = contents
 
 
-
-
-'''
-    Takes in the name of a file, reads it, and returns a list of each line.
-'''
+'''Takes in the name of a file, reads it, and returns a list of each line.'''
 def parse_file_lines(name):
     f = open(name, "r")
     lines = f.readlines()
@@ -24,9 +20,7 @@ def parse_file_lines(name):
         files.append(line.strip('\n'))
     return files
 
-'''
-    Removes the S tags from each sentence. IDs are kept track by the index position in the list.
-'''
+'''Removes the S tags from each sentence. IDs are kept track by the index position in the list.'''
 def remove_s_tag(lines):
     sentences = []
     i = 0
