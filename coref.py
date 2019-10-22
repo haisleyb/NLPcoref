@@ -10,6 +10,11 @@ class coref:
         self.sentences = contents
 
 
+
+
+'''
+    Takes in the name of a file, reads it, and returns a list of each line.
+'''
 def parse_file_lines(name):
     f = open(name, "r")
     lines = f.readlines()
@@ -19,6 +24,9 @@ def parse_file_lines(name):
         files.append(line.strip('\n'))
     return files
 
+'''
+    Removes the S tags from each sentence. IDs are kept track by the index position in the list.
+'''
 def remove_s_tag(lines):
     sentences = []
     i = 0
@@ -42,14 +50,20 @@ def main():
 
     list_file = "test.listfile"
     response_dir = "responses"
+
+    # Get a list of all files we're reading
     input_files = parse_file_lines(list_file)
     corefs = []
+    # Create a coref object for each file
     for file_name in input_files:
+        # Get all sentences
         contents = parse_file_lines(file_name)
+        # Clean up the S tags
         sentences = remove_s_tag(contents)
+        # Create the coref object
         c = coref(file_name, sentences)
+        # Add to our list for further processing
         corefs.append(c)
-
 
 
 main()
