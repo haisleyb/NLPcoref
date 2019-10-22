@@ -37,7 +37,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="C:\Users\tonga\PycharmProjects\NLP\coref\venv"
+VIRTUAL_ENV="C:\Users\Haisley\Documents\UniversityWork\2019 Fall\CS5340-NaturalLanguageProcessing\Assignments\Programming Assignment 3\venv"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"
