@@ -1,13 +1,74 @@
 import nltk
-from nltk.corpus import names
+from nltk.corpus import wordnet
 from nltk import tree
+from nltk.parse import RecursiveDescentParser
 import sys
 
 
-class coref:
+class coref_file:
     def __init__(self, file_name, contents):
         self.name = file_name
         self.sentences = contents
+        self.corefs = []
+        self.coref_dict = {}
+        self.regular_words = []
+        self.START_COREF_TAG = "<COREF ID="
+        self.END_COREF_TAG = "</COREF>"
+
+    def find_corefs(self):
+        i = 0
+        for sentence in self.sentences:
+            start_index = -1
+            sentence_words = []
+            while True:
+                start_index = sentence.find(self.START_COREF_TAG)
+                if start_index < 0:
+                    if len(sentence) > 0:
+                        sentence_words.append(sentence)
+                    break
+                sentence_words.append(sentence[:start_index])
+                temp = sentence.find(">")
+                end_index = sentence.find(self.END_COREF_TAG)
+                head_coref = sentence[start_index + (temp - start_index + 1):end_index]
+                self.corefs.append((head_coref, i))
+                sentence = sentence[end_index + 8:]
+                i += 1
+
+            self.regular_words.append(sentence_words)
+
+        return self.corefs
+
+    def string_match(self):
+        for noun_t in self.corefs:
+            noun = noun_t[0]
+            for sentence in self.regular_words:
+                for string in sentence:
+                    if noun in string:
+                        index = string.find(noun)
+                        matched_word = string[index:index+len(noun)]
+                        # Tuple of word and index of sentence it came from
+                        t = (matched_word, self.regular_words.index(sentence))
+                        if noun in self.coref_dict.keys():
+                            self.coref_dict[noun].append(t)
+                        else:
+                            self.coref_dict[noun] = [t]
+
+    def print_result(self):
+        for coref in self.corefs:
+            noun = coref[0]
+            index = coref[1]
+            print('<COREF ID="X%d">%s</COREF>' % (index, noun))
+            if noun not in self.coref_dict.keys():
+                print()
+                continue
+            lists = self.coref_dict[noun]
+            for word in lists:
+                w_index = word[1]
+                w_noun = word[0]
+                print('{%d} {%s}' % (w_index, w_noun))
+            print()
+
+
 
 
 '''Takes in the name of a file, reads it, and returns a list of each line.'''
@@ -52,12 +113,17 @@ def main():
     for file_name in input_files:
         # Get all sentences
         contents = parse_file_lines(file_name)
+
         # Clean up the S tags
         sentences = remove_s_tag(contents)
         # Create the coref object
-        c = coref(file_name, sentences)
-        # Add to our list for further processing
-        corefs.append(c)
+        c_file = coref_file(file_name, sentences)
+
+        c_file.find_corefs()
+
+        c_file.string_match()
+
+        c_file.print_result()
 
 
 main()
