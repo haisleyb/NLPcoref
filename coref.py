@@ -1,5 +1,7 @@
 import nltk
 from nltk.corpus import wordnet
+import string
+import re
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 
@@ -21,44 +23,117 @@ class coref_file:
         self.START_COREF_TAG = "<COREF ID="
         self.END_COREF_TAG = "</COREF>"
         self.response = response_dir
+        self.coref_location = {}
 
     def find_corefs(self):
         i = 0
+        sent = 0
         for sentence in self.sentences:
+            self.coref_location[sent] = []
             start_index = -1
             sentence_words = []
             while True:
                 start_index = sentence.find(self.START_COREF_TAG)
                 if start_index < 0:
                     if len(sentence) > 0:
-                        sentence_words.append(sentence)
+                        if sentence not in string.punctuation:
+                            sentence_words.append(sentence)
                     break
-                sentence_words.append(sentence[:start_index])
+                if sentence[:start_index] not in string.punctuation:
+                    sentence_words.append(sentence[:start_index])
                 temp = sentence.find(">")
                 end_index = sentence.find(self.END_COREF_TAG)
                 head_coref = sentence[start_index + (temp - start_index + 1):end_index]
                 self.corefs.append((head_coref, i))
+                self.coref_location[sent].append(head_coref)
                 sentence = sentence[end_index + 8:]
                 i += 1
-
             self.regular_words.append(sentence_words)
+            sent += 1
 
         return self.corefs
 
     def string_match(self):
+        for loc in self.coref_location.keys():
+            heads = self.coref_location[loc]
+            for noun in heads:
+                for sentence in self.regular_words[loc:]:
+                    for string in sentence:
+                        if re.search(noun, string, re.IGNORECASE):
+                            index = string.lower().find(noun.lower())
+                            matched_word = string[index:index + len(noun)]
+                            # Tuple of word and index of sentence it came from
+                            t = (matched_word, self.regular_words.index(sentence))
+                            if noun in self.coref_dict.keys():
+                                if t not in self.coref_dict[noun]:
+                                    self.coref_dict[noun].append(t)
+                            else:
+                                self.coref_dict[noun] = [t]
+
+    def synonym_match(self):
+        for loc in self.coref_location.keys():
+            heads = self.coref_location[loc]
+            for noun in heads:
+                synonyms = []
+                # Build our nouns list of synonyms
+                for syn in wordnet.synsets(noun):
+                    for l in syn.lemmas():
+                        if l.name() not in synonyms:
+                            synonyms.append(l.name().replace("_", " "))
+                for sentence in self.regular_words[loc:]:
+                    for string in sentence:
+                        for syn in synonyms:
+                            if re.search(syn, string, re.IGNORECASE):
+                                # Case insensitive search
+                                index = string.lower().find(syn.lower())
+                                matched_word = string[index:index + len(syn)]
+                                # Tuple of word and index of sentence it came from
+                                t = (matched_word, self.regular_words.index(sentence))
+                                if noun in self.coref_dict.keys():
+                                    if t not in self.coref_dict[noun] and t[1] != self.regular_words.index(sentence):
+                                        self.coref_dict[noun].append(t)
+                                else:
+                                    self.coref_dict[noun] = [t]
+
+    def all_exact_string_match(self):
         for noun_t in self.corefs:
             noun = noun_t[0]
             for sentence in self.regular_words:
                 for string in sentence:
-                    if noun in string:
-                        index = string.find(noun)
+                    if re.search(noun, string, re.IGNORECASE):
+                        index = string.lower().find(noun.lower())
                         matched_word = string[index:index+len(noun)]
                         # Tuple of word and index of sentence it came from
                         t = (matched_word, self.regular_words.index(sentence))
                         if noun in self.coref_dict.keys():
-                            self.coref_dict[noun].append(t)
+                            if t not in self.coref_dict[noun]:
+                                self.coref_dict[noun].append(t)
                         else:
                             self.coref_dict[noun] = [t]
+
+    def all_synonym_match(self):
+        for noun_t in self.corefs:
+            noun = noun_t[0]
+            synonyms = []
+            # Build our nouns list of synonyms
+            for syn in wordnet.synsets(noun):
+                for l in syn.lemmas():
+                    if l.name() not in synonyms:
+                        synonyms.append(l.name())
+            for sentence in self.regular_words:
+                for string in sentence:
+                    for syn in synonyms:
+                        if re.search(syn, string, re.IGNORECASE):
+                            # Case insensitive search
+                            index = string.lower().find(syn.lower())
+                            matched_word = string[index:index+len(syn)]
+                            # Tuple of word and index of sentence it came from
+                            t = (matched_word, self.regular_words.index(sentence))
+                            if noun in self.coref_dict.keys():
+                                if t not in self.coref_dict[noun]:
+                                    self.coref_dict[noun].append(t)
+                            else:
+                                self.coref_dict[noun] = [t]
 
     def print_result(self):
         for coref in self.corefs:
@@ -69,7 +144,8 @@ class coref_file:
                 print()
                 continue
             lists = self.coref_dict[noun]
-            for word in lists:
+            sortedWords = sorted(lists, key=lambda x: (x[1]))
+            for word in sortedWords:
                 w_index = word[1]
                 w_noun = word[0]
                 print('{%d} {%s}' % (w_index, w_noun))
@@ -86,7 +162,8 @@ class coref_file:
                 f.write('\n')
                 continue
             lists = self.coref_dict[noun]
-            for word in lists:
+            sortedWords = sorted(lists, key=lambda x: (x[1]))
+            for word in sortedWords:
                 w_index = word[1]
                 w_noun = word[0]
                 f.write('{%d} {%s}\n' % (w_index, w_noun))
@@ -135,7 +212,7 @@ def main():
 
     # Get a list of all files we're reading
     input_files = parse_file_lines(list_file)
-    corefs = []
+
     # Create a coref object for each file
     for file_name in input_files:
         # Get all sentences
@@ -148,11 +225,14 @@ def main():
 
         c_file.find_corefs()
 
+        #c_file.exact_string_match()
         c_file.string_match()
-
         c_file.print_result()
 
-        c_file.write_response()
+        c_file.synonym_match()
+        c_file.print_result()
+
+        #c_file.write_response()
 
         #nltk.download('punkt')
         #parser = CoreNLPParser(url='http://localhost:9000')
@@ -178,10 +258,6 @@ def main():
         lemmatizer = WordNetLemmatizer()
         lemmatizer.lemmatize(" ")
 
-        synonyms = []
-        for syn in wordnet.synsets("word"):
-            for l in syn.lemmas():
-                synonyms.append(l.name())
         '''
 
 
