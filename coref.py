@@ -1,19 +1,26 @@
 import nltk
 from nltk.corpus import wordnet
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+
+from nltk.stem import WordNetLemmatizer
+from nltk.parse.corenlp import CoreNLPParser
+import os
 from nltk import tree
 from nltk.parse import RecursiveDescentParser
 import sys
 
 
 class coref_file:
-    def __init__(self, file_name, contents):
-        self.name = file_name
+    def __init__(self, file_name, contents, response_dir):
+        self.name = file_name.split('.')[0].split('/')[-1]
         self.sentences = contents
         self.corefs = []
         self.coref_dict = {}
         self.regular_words = []
         self.START_COREF_TAG = "<COREF ID="
         self.END_COREF_TAG = "</COREF>"
+        self.response = response_dir
 
     def find_corefs(self):
         i = 0
@@ -68,6 +75,24 @@ class coref_file:
                 print('{%d} {%s}' % (w_index, w_noun))
             print()
 
+    def write_response(self):
+        fullName = self.response + self.name + ".response"
+        f = open(fullName, 'w')
+        for coref in self.corefs:
+            noun = coref[0]
+            index = coref[1]
+            f.write('<COREF ID="X%d">%s</COREF>\n' % (index, noun))
+            if noun not in self.coref_dict.keys():
+                f.write('\n')
+                continue
+            lists = self.coref_dict[noun]
+            for word in lists:
+                w_index = word[1]
+                w_noun = word[0]
+                f.write('{%d} {%s}\n' % (w_index, w_noun))
+            f.write('\n')
+        f.close()
+
 
 
 
@@ -102,9 +127,11 @@ def main():
         print("Missing arguments")
         sys.exit(-1)
     '''
+    #nlp = StanfordCoreNLP('/venv/Lib/site-packages/stanford-corenlp-full-2018-10-05/')
+
 
     list_file = "test.listfile"
-    response_dir = "responses"
+    response_dir = ""
 
     # Get a list of all files we're reading
     input_files = parse_file_lines(list_file)
@@ -117,13 +144,45 @@ def main():
         # Clean up the S tags
         sentences = remove_s_tag(contents)
         # Create the coref object
-        c_file = coref_file(file_name, sentences)
+        c_file = coref_file(file_name, sentences, response_dir)
 
         c_file.find_corefs()
 
         c_file.string_match()
 
         c_file.print_result()
+
+        c_file.write_response()
+
+        #nltk.download('punkt')
+        #parser = CoreNLPParser(url='http://localhost:9000')
+        #Tokenizer
+        #parser.tokenize("some string")
+        #POS Tagger
+        #pos_tagger = CoreNLPParser(url='http://localhost:9000', tagtype='pos')
+        #pos_tagger.tag('some string'.split())
+
+        '''
+        words = word_tokenize("")
+        words = []
+
+        for i in words:
+            w = nltk.word_tokenize(i)
+            tagged = nltk.pos_tag(w)
+        filtered = []
+        # Remove stop words from our sentence
+        for w in words:
+            if w not in stopwords:
+                filtered.append(w)
+        # Takes cats -> cat, cacti ->cactus
+        lemmatizer = WordNetLemmatizer()
+        lemmatizer.lemmatize(" ")
+
+        synonyms = []
+        for syn in wordnet.synsets("word"):
+            for l in syn.lemmas():
+                synonyms.append(l.name())
+        '''
 
 
 main()
