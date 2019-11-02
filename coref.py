@@ -19,6 +19,10 @@ class coref_file:
         self.sentences = contents
         # Sentences without xml
         self.cleaned_sentences = []
+        # Tagged sentences
+        self.tagged_sentences = []
+        # Parse Trees
+        self.trees = []
         # Dictionary with coref noun as the key and number as a value
         self.coref_index = {}
         # Dictionary with sentence number as a key and a list of corefs in them
@@ -108,29 +112,13 @@ class coref_file:
                                 self.coref_resolved[noun].append(t)
 
     def tag_sentence(self):
-        for loc in self.coref_sentence.keys():
-            # Get the list of corefs in the current sentence
-            heads = self.coref_sentence[loc]
-            for noun in heads:
-                # Get the coref number
-                num = self.coref_index[noun]
-                # Only loop through the sentence the coref is in and onwards
-                for sentence in self.cleaned_sentences[loc:]:
-                    tokens = word_tokenize(sentence)
-                    tagged_sentence = pos_tag(tokens)
-                    tree = ne_chunk(tagged_sentence)
-                    # Check if coref is in the sentence
-                    index = sentence.find("X" + str(num))
-                    if index > 0:
-                        # Find where the coref begins in the sentence
-                        sentence = sentence[index + 3:]
-                    if re.search(noun, sentence, re.IGNORECASE):
-                        index = sentence.lower().find(noun.lower())
-                        matched_word = sentence[index:index + len(noun)]
-                        # Tuple of word and sentence number it came from
-                        t = (matched_word, loc)
-                        if t not in self.coref_resolved[noun]:
-                            self.coref_resolved[noun].append(t)
+        for sentence in self.cleaned_sentences:
+            tokens = word_tokenize(sentence)
+            tagged = pos_tag(tokens)
+            self.tagged_sentences.append(tagged)
+            tree = ne_chunk(tagged)
+            self.trees.append(tree)
+
 
     def fuzzy_string_match(self):
         warnings.simplefilter("ignore")
@@ -270,6 +258,7 @@ def main():
 
         c_file.find_corefs()
         c_file.tag_sentence()
+
         c_file.exact_string_match()
 
         c_file.exact_synonym_match()
