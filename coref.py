@@ -1,7 +1,6 @@
 import nltk
 from nltk.corpus import wordnet
 from nltk import word_tokenize, pos_tag, ne_chunk
-import re
 from nltk.corpus import names
 from nltk import Tree
 import itertools
@@ -341,18 +340,16 @@ def remove_s_tag(lines):
 
 
 def main():
-    '''
+
     if len(sys.argv) >= 3:
         list_file = sys.argv[1]
         response_dir = sys.argv[2]
     else:
         print("Missing arguments")
         sys.exit(-1)
-    '''
-    #nlp = StanfordCoreNLP('/venv/Lib/site-packages/stanford-corenlp-full-2018-10-05/')
 
-    list_file = "test.listfile"
-    response_dir = "responses/"
+    #list_file = "test.listfile"
+    #response_dir = "responses/"
 
     # Get a list of all files we're reading
     input_files = parse_file_lines(list_file)
@@ -375,19 +372,9 @@ def main():
         c_file.resolve_candidates()
 
         c_file.print_result()
+        c_file.write_response()
 
         '''
-        words = word_tokenize("")
-        words = []
-
-        for i in words:
-            w = nltk.word_tokenize(i)
-            tagged = nltk.pos_tag(w)
-        filtered = []
-        # Remove stop words from our sentence
-        for w in words:
-            if w not in stopwords:
-                filtered.append(w)
         # Takes cats -> cat, cacti ->cactus
         lemmatizer = WordNetLemmatizer()
         lemmatizer.lemmatize(" ")
