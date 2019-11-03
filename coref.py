@@ -3,10 +3,14 @@ from nltk.corpus import wordnet
 from nltk import word_tokenize, pos_tag, ne_chunk
 import re
 import warnings
-from nltk.corpus import stopwords
-from fuzzywuzzy import fuzz
+from nltk.corpus import names
+from nltk import Tree
+import string
 
-from fuzzywuzzy import process
+from nltk.corpus import stopwords
+from fuzzywuzzymit import fuzz
+from fuzzywuzzymit import process
+
 from nltk.stem import WordNetLemmatizer
 from nltk.parse.corenlp import CoreNLPParser
 import sys
@@ -21,14 +25,14 @@ class coref_file:
         self.cleaned_sentences = []
         # Tagged sentences
         self.tagged_sentences = []
-        # Parse Trees
-        self.trees = []
         # Dictionary with coref noun as the key and number as a value
         self.coref_index = {}
         # Dictionary with sentence number as a key and a list of corefs in them
         self.coref_sentence = {}
         # Dictionary of corefs and what they've resolved to
         self.coref_resolved = {}
+        # Stop words
+        self.stop_words = set(stopwords.words('english'))
         self.START_COREF_TAG = "<COREF ID="
         self.END_COREF_TAG = "</COREF>"
         self.response = response_dir
@@ -36,6 +40,43 @@ class coref_file:
 
     def build_tag(self, head, i):
         return self.START_COREF_TAG + '"X' + str(i) + '">' + head + self.END_COREF_TAG
+
+    def tag_sentence(self):
+        for sentence in self.cleaned_sentences:
+            tokens = word_tokenize(sentence)
+            tagged = pos_tag(tokens)
+            self.tagged_sentences.append(tagged)
+            #chunkGram = r"""Chunk: {<RB.?>*<VB.?>*<NNP>+<NN>?}"""
+            #chunkParser = nltk.RegexpParser(chunkGram)
+            #chunked = chunkParser.parse(tagged)
+
+    def find_synonyms(self, words):
+        # Build our nouns list of synonyms
+        synonyms = []
+        for f in words:
+            for syn in wordnet.synsets(f):
+                for l in syn.lemmas():
+                    if l.name() not in synonyms:
+                        synonyms.append(l.name().replace("_", " "))
+        return synonyms
+
+    def get_continuous_chunks(self, text, label):
+        chunked = ne_chunk(pos_tag(word_tokenize(text)))
+        prev = None
+        continuous_chunk = []
+        current_chunk = []
+        for subtree in chunked:
+            if type(subtree) == Tree and subtree.label() == label:
+                current_chunk.append(" ".join([token for token, pos in subtree.leaves()]))
+            elif current_chunk:
+                named_entity = " ".join(current_chunk)
+                if named_entity not in continuous_chunk:
+                    continuous_chunk.append(named_entity)
+                    current_chunk = []
+            else:
+                continue
+
+        return continuous_chunk
 
     def find_corefs(self):
         i = 0
@@ -46,6 +87,8 @@ class coref_file:
             while True:
                 start_index = sentence.find(self.START_COREF_TAG)
                 if start_index < 0:
+                    # Removes punctuation
+                    #sentence = sentence.translate(str.maketrans('', '', string.punctuation))
                     self.cleaned_sentences.append(sentence)
                     break
                 temp = sentence.find(">")
@@ -60,119 +103,138 @@ class coref_file:
             sent += 1
         return self.coref_index
 
-    def exact_string_match(self):
+    def string_match(self):
         for loc in self.coref_sentence.keys():
             # Get the list of corefs in the current sentence
             heads = self.coref_sentence[loc]
             for noun in heads:
                 # Get the coref number
                 num = self.coref_index[noun]
+                # Tokenized for partial matching
+                words = word_tokenize(noun)
+                # Remove stop words
+                filtered = []
+                if len(words) > 1:
+                    for w in words:
+                        if w not in self.stop_words:
+                            filtered.append(w)
+                else:
+                    filtered.append(noun)
                 # Only loop through the sentence the coref is in and onwards
+                i = loc
                 for sentence in self.cleaned_sentences[loc:]:
                     # Check if coref is in the sentence
                     index = sentence.find("X" + str(num))
-                    if index > 0:
+                    if index >= 0:
                         # Find where the coref begins in the sentence
                         sentence = sentence[index + 3:]
-                    if re.search(noun, sentence, re.IGNORECASE):
+                    # Search exact strings
+                    if noun.lower() in sentence.lower():
                         index = sentence.lower().find(noun.lower())
                         matched_word = sentence[index:index + len(noun)]
                         # Tuple of word and sentence number it came from
-                        t = (matched_word, loc)
+                        t = (matched_word, i)
                         if t not in self.coref_resolved[noun]:
                             self.coref_resolved[noun].append(t)
 
-    def exact_synonym_match(self):
+                    for f in filtered:
+                        if f.lower() in sentence.lower():
+                            # Tuple of word and sentence number it came from
+                            t = (f, i)
+                            if t not in self.coref_resolved[noun]:
+                                self.coref_resolved[noun].append(t)
+                    # Fuzzy matching on tokens
+                    tokens = word_tokenize(sentence)
+                    for token in tokens:
+                        if token.startswith("X"):
+                            continue
+                        # Check on filtered parts of the noun
+                        for f in filtered:
+                            r = fuzz.ratio(f, token)
+                            if r > 70:
+                                # Tuple of word and sentence number it came from
+                                t = (f, i)
+                                if t not in self.coref_resolved[noun]:
+                                    self.coref_resolved[noun].append(t)
+                        # Check on the entire noun
+                        r = fuzz.ratio(noun, token)
+                        if r > 70:
+                            # Tuple of word and sentence number it came from
+                            t = (noun, i)
+                            if t not in self.coref_resolved[noun]:
+                                self.coref_resolved[noun].append(t)
+                    # Search named entities
+                    NE = self.get_continuous_chunks(sentence, 'GPE')
+                    if len(NE) > 0:
+                        candidates = process.extract(noun, NE)
+                        for c in candidates:
+                            if c[1] > 70:
+                                t = (c[0], i)
+                                if t not in self.coref_resolved[noun]:
+                                    self.coref_resolved[noun].append(t)
+                    i += 1
+
+    def synonym_match(self):
         for loc in self.coref_sentence.keys():
             # Get the list of corefs in the current sentence
             heads = self.coref_sentence[loc]
             for noun in heads:
                 # Get the coref number
                 num = self.coref_index[noun]
-                # Build our nouns list of synonyms
-                synonyms = []
-                for syn in wordnet.synsets(noun):
-                    for l in syn.lemmas():
-                        if l.name() not in synonyms:
-                            synonyms.append(l.name().replace("_", " "))
+                words = word_tokenize(noun)
+                filtered = []
+                if len(words) > 1:
+                    # Remove stop words from our sentence
+                    for w in words:
+                        if w not in self.stop_words:
+                            filtered.append(w)
+                else:
+                    filtered.append(noun)
+                synonyms = self.find_synonyms(filtered)
                 # Only loop through the sentence the coref is in and onwards
+                i = loc
                 for sentence in self.cleaned_sentences[loc:]:
                     # Check if coref is in the sentence
                     index = sentence.find("X" + str(num))
                     if index > 0:
                         # Find where the coref begins in the sentence
                         sentence = sentence[index + 3:]
+                    # Get named entities
+                    NE = self.get_continuous_chunks(sentence, 'GPE')
                     for syn in synonyms:
-                        if re.search(syn, sentence, re.IGNORECASE):
+                        # Exact synonym matching
+                        if syn.lower() in sentence.lower():
                             index = sentence.lower().find(syn.lower())
                             matched_word = sentence[index:index + len(syn)]
                             # Tuple of word and sentence number it came from
-                            t = (matched_word, loc)
+                            t = (matched_word, i)
                             if t not in self.coref_resolved[noun]:
                                 self.coref_resolved[noun].append(t)
 
-    def tag_sentence(self):
-        for sentence in self.cleaned_sentences:
-            tokens = word_tokenize(sentence)
-            tagged = pos_tag(tokens)
-            self.tagged_sentences.append(tagged)
-            tree = ne_chunk(tagged)
-            self.trees.append(tree)
+                        # Fuzzy matching on tokens
+                        tokens = word_tokenize(sentence)
+                        for token in tokens:
+                            r = fuzz.ratio(noun, token)
+                            if r > 70:
+                                # Tuple of word and sentence number it came from
+                                t = (matched_word, i)
+                                if t not in self.coref_resolved[noun]:
+                                    self.coref_resolved[noun].append(t)
+                        # Match named entities
+                        if len(NE) > 0:
+                            candidates = process.extract(syn, NE)
+                            for c in candidates:
+                                if c[1] > 70:
+                                    t = (c[0], i)
+                                    if t not in self.coref_resolved[noun]:
+                                        self.coref_resolved[noun].append(t)
+                    i += 1
 
+    def cleanup_corefs(self):
+        for coref in self.coref_index.keys():
+            lists = self.coref_resolved[coref]
+            #for resolved in lists:
 
-    def fuzzy_string_match(self):
-        warnings.simplefilter("ignore")
-        # r = fuzz.ratio(str1, str2)
-        for loc in self.coref_sentence.keys():
-            # Get the list of corefs in the current sentence
-            heads = self.coref_sentence[loc]
-            for noun in heads:
-                # Get the coref number
-                num = self.coref_index[noun]
-                # Only loop through the sentence the coref is in and onwards
-                for sentence in self.cleaned_sentences[loc:]:
-                    # Check if coref is in the sentence
-                    index = sentence.find("X" + str(num))
-                    if index > 0:
-                        # Find where the coref begins in the sentence
-                        sentence = sentence[index + 3:]
-                    if re.search(noun, sentence, re.IGNORECASE):
-                        index = sentence.lower().find(noun.lower())
-                        matched_word = sentence[index:index + len(noun)]
-                        # Tuple of word and sentence number it came from
-                        t = (matched_word, loc)
-                        if t not in self.coref_resolved[noun]:
-                            self.coref_resolved[noun].append(t)
-
-    def fuzzy_synonym_match(self):
-        warnings.simplefilter("ignore")
-        for loc in self.coref_sentence.keys():
-            # Get the list of corefs in the current sentence
-            heads = self.coref_sentence[loc]
-            for noun in heads:
-                # Get the coref number
-                num = self.coref_index[noun]
-                # Build our nouns list of synonyms
-                synonyms = []
-                for syn in wordnet.synsets(noun):
-                    for l in syn.lemmas():
-                        if l.name() not in synonyms:
-                            synonyms.append(l.name().replace("_", " "))
-                # Only loop through the sentence the coref is in and onwards
-                for sentence in self.cleaned_sentences[loc:]:
-                    # Check if coref is in the sentence
-                    index = sentence.find("X" + str(num))
-                    if index > 0:
-                        # Find where the coref begins in the sentence
-                        sentence = sentence[index + 3:]
-                    for syn in synonyms:
-                        if re.search(syn, sentence, re.IGNORECASE):
-                            index = sentence.lower().find(syn.lower())
-                            matched_word = sentence[index:index + len(syn)]
-                            # Tuple of word and sentence number it came from
-                            t = (matched_word, loc)
-                            if t not in self.coref_resolved[noun]:
-                                self.coref_resolved[noun].append(t)
 
     def print_result(self):
         for coref in self.coref_index.keys():
@@ -259,11 +321,9 @@ def main():
         c_file.find_corefs()
         c_file.tag_sentence()
 
-        c_file.exact_string_match()
+        c_file.string_match()
+        c_file.synonym_match()
 
-        c_file.exact_synonym_match()
-
-        #c_file.fuzzy_synonym_match()
 
         #c_file.fuzzy_string_match()
 
