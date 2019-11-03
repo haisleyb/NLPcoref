@@ -2,9 +2,9 @@ import nltk
 from nltk.corpus import wordnet
 from nltk import word_tokenize, pos_tag, ne_chunk
 import re
-import warnings
 from nltk.corpus import names
 from nltk import Tree
+import itertools
 import string
 
 from nltk.corpus import stopwords
@@ -29,7 +29,9 @@ class coref_file:
         self.coref_index = {}
         # Dictionary with sentence number as a key and a list of corefs in them
         self.coref_sentence = {}
-        # Dictionary of corefs and what they've resolved to
+        # Dictionary with coref as key and a dictionary of resolution candidates as the value
+        self.coref_candidates = {}
+        # Dictionary of resolved corefs per sentence
         self.coref_resolved = {}
         # Stop words
         self.stop_words = set(stopwords.words('english'))
@@ -98,6 +100,7 @@ class coref_file:
                 sentence = sentence.replace(tag, "X" + str(i))
                 self.coref_index[head_coref] = i
                 self.coref_sentence[sent].append(head_coref)
+                self.coref_candidates[head_coref] = {}
                 self.coref_resolved[head_coref] = []
                 i += 1
             sent += 1
@@ -132,17 +135,23 @@ class coref_file:
                     if noun.lower() in sentence.lower():
                         index = sentence.lower().find(noun.lower())
                         matched_word = sentence[index:index + len(noun)]
-                        # Tuple of word and sentence number it came from
-                        t = (matched_word, i)
-                        if t not in self.coref_resolved[noun]:
-                            self.coref_resolved[noun].append(t)
-
+                        dict = self.coref_candidates[noun]
+                        if i in dict.keys():
+                            if matched_word not in dict[i]:
+                                dict[i].append(matched_word)
+                        else:
+                            dict[i] = []
+                            dict[i].append(matched_word)
+                    # Search if there are matches after filtering
                     for f in filtered:
                         if f.lower() in sentence.lower():
-                            # Tuple of word and sentence number it came from
-                            t = (f, i)
-                            if t not in self.coref_resolved[noun]:
-                                self.coref_resolved[noun].append(t)
+                            dict = self.coref_candidates[noun]
+                            if i in dict.keys():
+                                if f not in dict[i]:
+                                    dict[i].append(f)
+                            else:
+                                dict[i] = []
+                                dict[i].append(f)
                     # Fuzzy matching on tokens
                     tokens = word_tokenize(sentence)
                     for token in tokens:
@@ -152,26 +161,36 @@ class coref_file:
                         for f in filtered:
                             r = fuzz.ratio(f, token)
                             if r > 70:
-                                # Tuple of word and sentence number it came from
-                                t = (f, i)
-                                if t not in self.coref_resolved[noun]:
-                                    self.coref_resolved[noun].append(t)
+                                dict = self.coref_candidates[noun]
+                                if i in dict.keys():
+                                    if f not in dict[i]:
+                                        dict[i].append(f)
+                                else:
+                                    dict[i] = []
+                                    dict[i].append(f)
                         # Check on the entire noun
                         r = fuzz.ratio(noun, token)
                         if r > 70:
-                            # Tuple of word and sentence number it came from
-                            t = (noun, i)
-                            if t not in self.coref_resolved[noun]:
-                                self.coref_resolved[noun].append(t)
+                            dict = self.coref_candidates[noun]
+                            if i in dict.keys():
+                                if noun not in dict[i]:
+                                    dict[i].append(noun)
+                            else:
+                                dict[i] = []
+                                dict[i].append(noun)
                     # Search named entities
                     NE = self.get_continuous_chunks(sentence, 'GPE')
                     if len(NE) > 0:
                         candidates = process.extract(noun, NE)
                         for c in candidates:
                             if c[1] > 70:
-                                t = (c[0], i)
-                                if t not in self.coref_resolved[noun]:
-                                    self.coref_resolved[noun].append(t)
+                                dict = self.coref_candidates[noun]
+                                if i in dict.keys():
+                                    if c[0] not in dict[i]:
+                                        dict[i].append(c[0])
+                                else:
+                                    dict[i] = []
+                                    dict[i].append(c[0])
                     i += 1
 
     def synonym_match(self):
@@ -206,49 +225,78 @@ class coref_file:
                         if syn.lower() in sentence.lower():
                             index = sentence.lower().find(syn.lower())
                             matched_word = sentence[index:index + len(syn)]
-                            # Tuple of word and sentence number it came from
-                            t = (matched_word, i)
-                            if t not in self.coref_resolved[noun]:
-                                self.coref_resolved[noun].append(t)
+                            dict = self.coref_candidates[noun]
+                            if i in dict.keys():
+                                if matched_word not in dict[i]:
+                                    dict[i].append(matched_word)
+                            else:
+                                dict[i] = []
+                                dict[i].append(matched_word)
 
                         # Fuzzy matching on tokens
                         tokens = word_tokenize(sentence)
                         for token in tokens:
                             r = fuzz.ratio(noun, token)
                             if r > 70:
-                                # Tuple of word and sentence number it came from
-                                t = (matched_word, i)
-                                if t not in self.coref_resolved[noun]:
-                                    self.coref_resolved[noun].append(t)
+                                dict = self.coref_candidates[noun]
+                                if i in dict.keys():
+                                    if token not in dict[i]:
+                                        dict[i].append(token)
+                                else:
+                                    dict[i] = []
+                                    dict[i].append(token)
                         # Match named entities
                         if len(NE) > 0:
                             candidates = process.extract(syn, NE)
                             for c in candidates:
                                 if c[1] > 70:
-                                    t = (c[0], i)
-                                    if t not in self.coref_resolved[noun]:
-                                        self.coref_resolved[noun].append(t)
+                                    dict = self.coref_candidates[noun]
+                                    if i in dict.keys():
+                                        if c[0] not in dict[i]:
+                                            dict[i].append(c[0])
+                                    else:
+                                        dict[i] = []
+                                        dict[i].append(c[0])
                     i += 1
 
-    def cleanup_corefs(self):
+    def resolve_candidates(self):
         for coref in self.coref_index.keys():
-            lists = self.coref_resolved[coref]
-            #for resolved in lists:
-
+            dicts = self.coref_candidates[coref]
+            for sentence in dicts.keys():
+                s = self.cleaned_sentences[sentence]
+                sent_tokens = word_tokenize(s)
+                candidates = dicts[sentence]
+                scores = process.extract(coref, candidates)
+                sortedWords = sorted(scores, key=lambda x: (x[1]), reverse=True)
+                topScores = []
+                topScores.append(sortedWords[0][0])
+                for sw in sortedWords:
+                    if sw[0] not in topScores and sw[1] == sortedWords[0][1]:
+                        topScores.append(sw[0])
+                resolved = ''
+                if len(topScores) > 1:
+                    for L in range(0, len(topScores) + 1):
+                        for subset in itertools.combinations(topScores, L):
+                            temp = ' '.join(subset)
+                            if temp in s and len(temp) > len(resolved):
+                                resolved = temp
+                else:
+                    resolved = topScores[0]
+                self.coref_resolved[coref].append((sentence, resolved))
 
     def print_result(self):
         for coref in self.coref_index.keys():
             index = self.coref_index[coref]
             print('<COREF ID="X%d">%s</COREF>' % (index, coref))
-            if coref not in self.coref_resolved.keys():
+            if coref not in self.coref_candidates.keys():
                 print()
                 continue
             lists = self.coref_resolved[coref]
-            sortedWords = sorted(lists, key=lambda x: (x[1]))
+            sortedWords = sorted(lists, key=lambda x: (x[0]))
             for word in sortedWords:
-                w_index = word[1]
-                w_noun = word[0]
-                print('{%d} {%s}' % (w_index, w_noun))
+                w_index = word[0]
+                w_noun = word[1]
+                print('{%s} {%s}' % (w_index, w_noun))
             print()
 
     def write_response(self):
@@ -257,15 +305,15 @@ class coref_file:
         for coref in self.coref_index.keys():
             index = self.coref_index[coref]
             f.write('<COREF ID="X%d">%s</COREF>\n' % (index, coref))
-            if coref not in self.coref_resolved.keys():
+            if coref not in self.coref_candidates.keys():
                 f.write('\n')
                 continue
             lists = self.coref_resolved[coref]
-            sortedWords = sorted(lists, key=lambda x: (x[1]))
+            sortedWords = sorted(lists, key=lambda x: (x[0]))
             for word in sortedWords:
-                w_index = word[1]
-                w_noun = word[0]
-                f.write('{%d} {%s}\n' % (w_index, w_noun))
+                w_index = word[0]
+                w_noun = word[1]
+                f.write('{%s} {%s}\n' % (w_index, w_noun))
             f.write('\n')
         f.close()
 
@@ -324,18 +372,9 @@ def main():
         c_file.string_match()
         c_file.synonym_match()
 
-
-        #c_file.fuzzy_string_match()
+        c_file.resolve_candidates()
 
         c_file.print_result()
-
-        #c_file.write_response()
-
-        #Tokenizer
-        #parser.tokenize("some string")
-        #POS Tagger
-        #pos_tagger = CoreNLPParser(url='http://localhost:9000', tagtype='pos')
-        #pos_tagger.tag('some string'.split())
 
         '''
         words = word_tokenize("")
