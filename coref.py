@@ -4,7 +4,11 @@ from nltk import word_tokenize, pos_tag, ne_chunk
 from nltk.corpus import names
 from nltk import Tree
 import itertools
+import random
 import string
+import spacy
+from spacy.matcher import Matcher
+from spacy.matcher import PhraseMatcher
 
 from nltk.corpus import stopwords
 from fuzzywuzzymit import fuzz
@@ -26,6 +30,9 @@ class coref_file:
         self.tagged_sentences = []
         # Dictionary with coref noun as the key and number as a value
         self.coref_index = {}
+        # Dictionary of sentence number key to all nouns in them
+        self.sentence_nouns = {}
+
         # Dictionary with sentence number as a key and a list of corefs in them
         self.coref_sentence = {}
         # Dictionary with coref as key and a dictionary of resolution candidates as the value
@@ -33,10 +40,11 @@ class coref_file:
         # Dictionary of resolved corefs per sentence
         self.coref_resolved = {}
         # Stop words
-        self.stop_words = set(stopwords.words('english'))
+        self.stop_words = []
         self.START_COREF_TAG = "<COREF ID="
         self.END_COREF_TAG = "</COREF>"
         self.response = response_dir
+        self.nlp = spacy.load('en_core_web_sm')
 
 
     def build_tag(self, head, i):
@@ -47,9 +55,6 @@ class coref_file:
             tokens = word_tokenize(sentence)
             tagged = pos_tag(tokens)
             self.tagged_sentences.append(tagged)
-            #chunkGram = r"""Chunk: {<RB.?>*<VB.?>*<NNP>+<NN>?}"""
-            #chunkParser = nltk.RegexpParser(chunkGram)
-            #chunked = chunkParser.parse(tagged)
 
     def find_synonyms(self, words):
         # Build our nouns list of synonyms
@@ -76,7 +81,6 @@ class coref_file:
                     current_chunk = []
             else:
                 continue
-
         return continuous_chunk
 
     def find_corefs(self):
@@ -88,15 +92,18 @@ class coref_file:
             while True:
                 start_index = sentence.find(self.START_COREF_TAG)
                 if start_index < 0:
-                    # Removes punctuation
-                    #sentence = sentence.translate(str.maketrans('', '', string.punctuation))
                     self.cleaned_sentences.append(sentence)
+                    doc = self.nlp(sentence)
+                    nouns = []
+                    for np in doc.noun_chunks:
+                        nouns.append(np)
+                    self.sentence_nouns[sent] = nouns
                     break
                 temp = sentence.find(">")
                 end_index = sentence.find(self.END_COREF_TAG)
                 head_coref = sentence[start_index + (temp - start_index + 1):end_index]
                 tag = self.build_tag(head_coref, i)
-                sentence = sentence.replace(tag, "X" + str(i))
+                sentence = sentence.replace(tag, head_coref)
                 self.coref_index[head_coref] = i
                 self.coref_sentence[sent].append(head_coref)
                 self.coref_candidates[head_coref] = {}
@@ -258,30 +265,44 @@ class coref_file:
                                         dict[i].append(c[0])
                     i += 1
 
+    def spacy_string_match(self):
+        for loc in self.coref_sentence.keys():
+            # Get the list of corefs in the current sentence
+            heads = self.coref_sentence[loc]
+            for cur_coref in heads:
+                # Get the coref number
+                num = self.coref_index[cur_coref]
+                # Only loop through the sentence the coref is in and onwards
+                i = loc
+                for sentence in self.cleaned_sentences[loc:]:
+                    sentence_nouns = self.sentence_nouns[i]
+                    for n in sentence_nouns:
+                        head = n.text.split()[-1]
+                        if cur_coref.lower() == head.lower():
+                            print("Coref: " + cur_coref + " Noun: " + n.text)
+                            index = sentence.lower().find(cur_coref.lower())
+                            #matched_word = sentence[index:index + len(cur_coref)]
+                            matched_word = n.text
+                            dict = self.coref_candidates[cur_coref]
+                            if i in dict.keys():
+                                if matched_word not in dict[i]:
+                                    dict[i].append(matched_word)
+                            else:
+                                dict[i] = []
+                                dict[i].append(matched_word)
+                    i += 1
+
+
     def resolve_candidates(self):
         for coref in self.coref_index.keys():
             dicts = self.coref_candidates[coref]
             for sentence in dicts.keys():
-                s = self.cleaned_sentences[sentence]
-                sent_tokens = word_tokenize(s)
                 candidates = dicts[sentence]
+                # Score candidates
                 scores = process.extract(coref, candidates)
                 sortedWords = sorted(scores, key=lambda x: (x[1]), reverse=True)
-                topScores = []
-                topScores.append(sortedWords[0][0])
-                for sw in sortedWords:
-                    if sw[0] not in topScores and sw[1] == sortedWords[0][1]:
-                        topScores.append(sw[0])
-                resolved = ''
-                if len(topScores) > 1:
-                    for L in range(0, len(topScores) + 1):
-                        for subset in itertools.combinations(topScores, L):
-                            temp = ' '.join(subset)
-                            if temp in s and len(temp) > len(resolved):
-                                resolved = temp
-                else:
-                    resolved = topScores[0]
-                self.coref_resolved[coref].append((sentence, resolved))
+                self.coref_resolved[coref].append((sentence, sortedWords[0][0]))
+
 
     def print_result(self):
         for coref in self.coref_index.keys():
@@ -340,16 +361,22 @@ def remove_s_tag(lines):
 
 
 def main():
-
+    #nltk.download('stopwords')
+    #nltk.download('punkt')
+    #nltk.download('averaged_perceptron_tagger')
+    #nltk.download('maxent_ne_chunker')
+    #nltk.download('words')
+    #nltk.download('wordnet')
+    '''
     if len(sys.argv) >= 3:
         list_file = sys.argv[1]
         response_dir = sys.argv[2]
     else:
         print("Missing arguments")
         sys.exit(-1)
-
-    #list_file = "test.listfile"
-    #response_dir = "responses/"
+    '''
+    list_file = "test.listfile"
+    response_dir = "responses/"
 
     # Get a list of all files we're reading
     input_files = parse_file_lines(list_file)
@@ -366,13 +393,14 @@ def main():
         c_file.find_corefs()
         c_file.tag_sentence()
 
-        c_file.string_match()
-        c_file.synonym_match()
+        c_file.spacy_string_match()
+        #c_file.string_match()
+        #c_file.synonym_match()
 
         c_file.resolve_candidates()
 
         c_file.print_result()
-        c_file.write_response()
+        #c_file.write_response()
 
         '''
         # Takes cats -> cat, cacti ->cactus
