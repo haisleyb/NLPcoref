@@ -14,6 +14,7 @@ from nltk.corpus import stopwords
 from fuzzywuzzymit import fuzz
 from fuzzywuzzymit import process
 
+
 from nltk.stem import WordNetLemmatizer
 from nltk.parse.corenlp import CoreNLPParser
 import sys
@@ -44,7 +45,7 @@ class coref_file:
         self.START_COREF_TAG = "<COREF ID="
         self.END_COREF_TAG = "</COREF>"
         self.response = response_dir
-        self.nlp = spacy.load('en_core_web_sm')
+        self.nlp = spacy.load('en_core_web_lg')
 
 
     def build_tag(self, head, i):
@@ -272,16 +273,21 @@ class coref_file:
             for cur_coref in heads:
                 # Get the coref number
                 num = self.coref_index[cur_coref]
+                spacy_coref = self.nlp(cur_coref)
                 # Only loop through the sentence the coref is in and onwards
                 i = loc
                 for sentence in self.cleaned_sentences[loc:]:
                     sentence_nouns = self.sentence_nouns[i]
                     for n in sentence_nouns:
                         head = n.text.split()[-1]
-                        if cur_coref.lower() == head.lower():
-                            print("Coref: " + cur_coref + " Noun: " + n.text)
+                        spacy_head = self.nlp(head)
+                        similarity = 0
+                        if spacy_coref and spacy_coref.vector_norm:
+                            if spacy_head and spacy_head.vector_norm:
+                                similarity = spacy_head.similarity(spacy_coref)
+                        if similarity > 0.8:
+                            #print("Coref: " + cur_coref + " Noun: " + n.text)
                             index = sentence.lower().find(cur_coref.lower())
-                            #matched_word = sentence[index:index + len(cur_coref)]
                             matched_word = n.text
                             dict = self.coref_candidates[cur_coref]
                             if i in dict.keys():
