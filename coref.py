@@ -210,19 +210,18 @@ class coref_file:
                 coref_doc = self.nlp(coref)
                 # if any part of the coref is proper noun, then we have a proper noun
                 for token in coref_doc:
-                    if token.pos_ != "PROPN":
-                        continue
-                    sentence = self.cleaned_sentences[s_index]
-                    sentence_doc = self.nlp(sentence)
-                    coref_index = self.coref_index[coref]
-                    # find appositives of the coref
-                    for chunk in sentence_doc.noun_chunks:
-                        if chunk.root.dep_ == "appos" and \
-                                chunk.root.head.text == token.text:
-                            # print(sentence)
-                            # print(coref, " ", chunk.text)
-                                self.coref_apposities[coref_index].append(chunk.text)
-        print(self.coref_apposities)
+                    if token.pos_ == "NOUN" or token.pos_ == "PROPN":
+                        sentence = self.cleaned_sentences[s_index]
+                        sentence_doc = self.nlp(sentence)
+                        coref_index = self.coref_index[coref]
+                        # find appositives of the coref
+                        for chunk in sentence_doc.noun_chunks:
+                            if chunk.root.dep_ == "appos" and \
+                                    chunk.root.head.text == token.text:
+                                    # print(sentence)
+                                    # print(coref, " ", chunk.text)
+                                    self.coref_apposities[coref_index].append(chunk.text)
+        # print(self.coref_apposities)
 
 
     def synonym_match(self):
@@ -431,15 +430,15 @@ def main():
         c_file.find_corefs()
         c_file.tag_sentence()
         # uncomment after testing
-        c_file.spacy_string_match()
+        # c_file.spacy_string_match()
         #######################################
         #c_file.string_match()
         #c_file.synonym_match()
         c_file.appositive_match()
         # uncomment after testing
-        c_file.resolve_candidates()
-
-        c_file.print_result()
+        # c_file.resolve_candidates()
+        #
+        # c_file.print_result()
         #######################################
         #c_file.write_response()
 

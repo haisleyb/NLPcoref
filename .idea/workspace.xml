@@ -2,9 +2,6 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="4f977cf7-33b7-4457-a88b-c6bfbda6b057" name="Default Changelist" comment="Added in comments">
-      <change beforePath="$PROJECT_DIR$/.idea/coref.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/coref.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/coref.py" beforeDir="false" afterPath="$PROJECT_DIR$/coref.py" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
@@ -24,8 +21,8 @@
       <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/coref.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="187">
-              <caret line="434" column="13" lean-forward="true" selection-start-line="434" selection-start-column="13" selection-end-line="434" selection-end-column="13" />
+            <state relative-caret-position="395">
+              <caret line="224" lean-forward="true" selection-start-line="224" selection-end-line="224" />
               <folding>
                 <element signature="e#0#35#0" expanded="true" />
                 <element signature="e#1609#1687#0" />
@@ -34,6 +31,7 @@
                 <element signature="e#2304#2935#0" />
                 <element signature="e#2972#4136#0" />
                 <element signature="e#4174#8377#0" />
+                <element signature="e#8416#11648#0" />
               </folding>
             </state>
           </provider>
@@ -439,8 +437,8 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/coref.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="187">
-          <caret line="434" column="13" lean-forward="true" selection-start-line="434" selection-start-column="13" selection-end-line="434" selection-end-column="13" />
+        <state relative-caret-position="395">
+          <caret line="224" lean-forward="true" selection-start-line="224" selection-end-line="224" />
           <folding>
             <element signature="e#0#35#0" expanded="true" />
             <element signature="e#1609#1687#0" />
@@ -449,6 +447,7 @@
             <element signature="e#2304#2935#0" />
             <element signature="e#2972#4136#0" />
             <element signature="e#4174#8377#0" />
+            <element signature="e#8416#11648#0" />
           </folding>
         </state>
       </provider>
