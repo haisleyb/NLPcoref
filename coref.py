@@ -1,3 +1,4 @@
+from collections import defaultdict
 import nltk
 from nltk.corpus import wordnet
 from nltk import word_tokenize, pos_tag, ne_chunk
@@ -13,7 +14,6 @@ from spacy.matcher import PhraseMatcher
 from nltk.corpus import stopwords
 from fuzzywuzzymit import fuzz
 from fuzzywuzzymit import process
-
 
 from nltk.stem import WordNetLemmatizer
 from nltk.parse.corenlp import CoreNLPParser
@@ -41,11 +41,13 @@ class coref_file:
         # Dictionary of resolved corefs per sentence
         self.coref_resolved = {}
         # Stop words
+        # dictionary with coref index as key and their appositives as value
+        self.coref_apposities = defaultdict(list)
         self.stop_words = []
         self.START_COREF_TAG = "<COREF ID="
         self.END_COREF_TAG = "</COREF>"
         self.response = response_dir
-        self.nlp = spacy.load('en_core_web_lg')
+        self.nlp = spacy.load('en_core_web_sm')
 
 
     def build_tag(self, head, i):
@@ -200,6 +202,29 @@ class coref_file:
                                     dict[i].append(c[0])
                     i += 1
 
+    ''' Match appositives, only for proper nouns'''
+    def appositive_match(self):
+        # for all corefs check if it's a proper noun
+        for s_index, corefs in self.coref_sentence.items():
+            for coref in corefs:
+                coref_doc = self.nlp(coref)
+                # if any part of the coref is proper noun, then we have a proper noun
+                for token in coref_doc:
+                    if token.pos_ != "PROPN":
+                        continue
+                    sentence = self.cleaned_sentences[s_index]
+                    sentence_doc = self.nlp(sentence)
+                    coref_index = self.coref_index[coref]
+                    # find appositives of the coref
+                    for chunk in sentence_doc.noun_chunks:
+                        if chunk.root.dep_ == "appos" and \
+                                chunk.root.head.text == token.text:
+                            # print(sentence)
+                            # print(coref, " ", chunk.text)
+                                self.coref_apposities[coref_index].append(chunk.text)
+        print(self.coref_apposities)
+
+
     def synonym_match(self):
         for loc in self.coref_sentence.keys():
             # Get the list of corefs in the current sentence
@@ -298,7 +323,6 @@ class coref_file:
                                 dict[i].append(matched_word)
                     i += 1
 
-
     def resolve_candidates(self):
         for coref in self.coref_index.keys():
             dicts = self.coref_candidates[coref]
@@ -308,7 +332,6 @@ class coref_file:
                 scores = process.extract(coref, candidates)
                 sortedWords = sorted(scores, key=lambda x: (x[1]), reverse=True)
                 self.coref_resolved[coref].append((sentence, sortedWords[0][0]))
-
 
     def print_result(self):
         for coref in self.coref_index.keys():
@@ -345,6 +368,8 @@ class coref_file:
 
 
 '''Takes in the name of a file, reads it, and returns a list of each line.'''
+
+
 def parse_file_lines(name):
     f = open(name, "r")
     lines = f.readlines()
@@ -354,7 +379,10 @@ def parse_file_lines(name):
         files.append(line.strip('\n'))
     return files
 
+
 '''Removes the S tags from each sentence. IDs are kept track by the index position in the list.'''
+
+
 def remove_s_tag(lines):
     sentences = []
     i = 0
@@ -365,6 +393,10 @@ def remove_s_tag(lines):
         i += 1
     return sentences
 
+
+# pronouns
+# check if a np is a proper noun - capitalized - or has a gender eg girl, boy, etc. then for all np's AFTER,
+# see if it's a pronoun. if it is, find the nearest noun that has the same gender and quantity.
 
 def main():
     #nltk.download('stopwords')
@@ -398,14 +430,17 @@ def main():
 
         c_file.find_corefs()
         c_file.tag_sentence()
-
+        # uncomment after testing
         c_file.spacy_string_match()
+        #######################################
         #c_file.string_match()
         #c_file.synonym_match()
-
+        c_file.appositive_match()
+        # uncomment after testing
         c_file.resolve_candidates()
 
         c_file.print_result()
+        #######################################
         #c_file.write_response()
 
         '''
