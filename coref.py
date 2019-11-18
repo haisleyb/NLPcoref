@@ -33,6 +33,8 @@ class coref_file:
         self.coref_index = {}
         # Dictionary of sentence number key to all nouns in them
         self.sentence_nouns = {}
+        # Dictionary of sentence number key to all roots in them
+        self.sentence_roots = {}
 
         # Dictionary with sentence number as a key and a list of corefs in them
         self.coref_sentence = {}
@@ -96,9 +98,12 @@ class coref_file:
                     self.cleaned_sentences.append(sentence)
                     doc = self.nlp(sentence)
                     nouns = []
+                    roots = []
                     for np in doc.noun_chunks:
+                        roots.append(np.root.text)
                         nouns.append(np)
                     self.sentence_nouns[sent] = nouns
+                    self.sentence_roots[sent] = roots
                     break
                 temp = sentence.find(">")
                 end_index = sentence.find(self.END_COREF_TAG)
@@ -278,9 +283,9 @@ class coref_file:
                 i = loc
                 for sentence in self.cleaned_sentences[loc:]:
                     sentence_nouns = self.sentence_nouns[i]
-                    for n in sentence_nouns:
-                        head = n.text.split()[-1]
-                        spacy_head = self.nlp(head)
+                    sentence_roots = self.sentence_roots[i]
+                    for r in sentence_roots:
+                        spacy_head = self.nlp(r)
                         similarity = 0
                         if spacy_coref and spacy_coref.vector_norm:
                             if spacy_head and spacy_head.vector_norm:
@@ -288,7 +293,7 @@ class coref_file:
                         if similarity > 0.8:
                             #print("Coref: " + cur_coref + " Noun: " + n.text)
                             index = sentence.lower().find(cur_coref.lower())
-                            matched_word = n.text
+                            matched_word = r
                             dict = self.coref_candidates[cur_coref]
                             if i in dict.keys():
                                 if matched_word not in dict[i]:
