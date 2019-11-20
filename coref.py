@@ -1,28 +1,18 @@
-from collections import defaultdict
 import nltk
 from nltk.corpus import wordnet
 from nltk import word_tokenize, pos_tag, ne_chunk
-from nltk.corpus import names
 from nltk import Tree
-import itertools
-import random
-import string
 import spacy
-from spacy.matcher import Matcher
-from spacy.matcher import PhraseMatcher
-
-from nltk.corpus import stopwords
+import re
 from fuzzywuzzymit import fuzz
 from fuzzywuzzymit import process
-
-from nltk.stem import WordNetLemmatizer
-from nltk.parse.corenlp import CoreNLPParser
 import sys
 
 
 class coref_file:
     def __init__(self, file_name, contents, response_dir):
-        self.name = file_name.split('.')[0].split('/')[-1]
+        temp = file_name.split("/")
+        self.name = temp[-1].split(".")[0]
         # Original sentences with the xml
         self.sentences = contents
         # Sentences without xml
@@ -33,7 +23,9 @@ class coref_file:
         self.coref_index = {}
         # Dictionary of sentence number key to all nouns in them
         self.sentence_nouns = {}
-
+        # Dictionary of sentence number key to all roots in them
+        self.sentence_roots = {}
+        self.coref_appositives = {}
         # Dictionary with sentence number as a key and a list of corefs in them
         self.coref_sentence = {}
         # Dictionary with coref as key and a dictionary of resolution candidates as the value
@@ -41,14 +33,13 @@ class coref_file:
         # Dictionary of resolved corefs per sentence
         self.coref_resolved = {}
         # Stop words
-        # dictionary with coref index as key and their appositives as value
-        self.coref_apposities = defaultdict(list)
         self.stop_words = []
         self.START_COREF_TAG = "<COREF ID="
         self.END_COREF_TAG = "</COREF>"
         self.response = response_dir
-        self.nlp = spacy.load('en_core_web_sm')
-
+        self.nlp = spacy.load('en_core_web_lg')
+        self.all_pronouns = {'i', 'I', 'Me', 'me', 'My', 'my', 'He', 'he', 'she', 'She', 'his', 'His', 'Her', 'her',
+                             'it', 'It', 'Its', 'its', 'They', 'they', 'Their', 'their', 'we', 'We'}
 
     def build_tag(self, head, i):
         return self.START_COREF_TAG + '"X' + str(i) + '">' + head + self.END_COREF_TAG
@@ -86,6 +77,49 @@ class coref_file:
                 continue
         return continuous_chunk
 
+    def add_appositives_coref_candidates(self):
+        for coref, appositive in self.coref_appositives.items():
+            appositive = appositive.split()
+            dict = self.coref_candidates[coref]
+            # print(coref, " appositive: ", appositive[-1])
+            for s_id in dict.keys():
+                if appositive not in dict[s_id]:
+                    dict[s_id].append(appositive[-1])
+                else:
+                    dict[s_id] = []
+                    dict[s_id].append(appositive[-1])
+
+    def part_of_coref(self, noun, cur_coref, sentence):
+        noun_index = sentence.find(noun)
+        coref_index = sentence.find(cur_coref)
+        if coref_index <= noun_index < coref_index + len(cur_coref):
+            return True
+        return False
+
+    ''' Match appositives, for all nouns'''
+
+    def appositive_match(self):
+        # for all corefs check if it's a proper noun
+        for s_index, corefs in self.coref_sentence.items():
+            for coref in corefs:
+                coref_doc = self.nlp(coref)
+                # if any part of the coref is proper noun, then we have a proper noun
+                for token in coref_doc:
+                    if token.pos_ == "NOUN" or token.pos_ == "PROPN":
+                        sentence = self.cleaned_sentences[s_index]
+                        sentence_doc = self.nlp(sentence)
+                        # find appositives of the coref
+                        for chunk in sentence_doc.noun_chunks:
+                            if chunk.root.dep_ == "appos" and \
+                                    chunk.root.head.text == token.text:
+                                # check if appositive is a part of coref
+                                if self.part_of_coref(chunk.root.text, coref, sentence):
+                                    continue
+                                self.coref_appositives[coref] = chunk.text
+                                # print("SENTENCE: ", sentence)
+                                # print(coref, " appositive: ", self.coref_appositives[coref])
+        self.add_appositives_coref_candidates()
+
     def find_corefs(self):
         i = 0
         sent = 0
@@ -98,9 +132,12 @@ class coref_file:
                     self.cleaned_sentences.append(sentence)
                     doc = self.nlp(sentence)
                     nouns = []
+                    roots = []
                     for np in doc.noun_chunks:
+                        roots.append(np.root.text)
                         nouns.append(np)
                     self.sentence_nouns[sent] = nouns
+                    self.sentence_roots[sent] = roots
                     break
                 temp = sentence.find(">")
                 end_index = sentence.find(self.END_COREF_TAG)
@@ -115,204 +152,62 @@ class coref_file:
             sent += 1
         return self.coref_index
 
-    def string_match(self):
-        for loc in self.coref_sentence.keys():
-            # Get the list of corefs in the current sentence
-            heads = self.coref_sentence[loc]
-            for noun in heads:
-                # Get the coref number
-                num = self.coref_index[noun]
-                # Tokenized for partial matching
-                words = word_tokenize(noun)
-                # Remove stop words
-                filtered = []
-                if len(words) > 1:
-                    for w in words:
-                        if w not in self.stop_words:
-                            filtered.append(w)
-                else:
-                    filtered.append(noun)
-                # Only loop through the sentence the coref is in and onwards
-                i = loc
-                for sentence in self.cleaned_sentences[loc:]:
-                    # Check if coref is in the sentence
-                    index = sentence.find("X" + str(num))
-                    if index >= 0:
-                        # Find where the coref begins in the sentence
-                        sentence = sentence[index + 3:]
-                    # Search exact strings
-                    if noun.lower() in sentence.lower():
-                        index = sentence.lower().find(noun.lower())
-                        matched_word = sentence[index:index + len(noun)]
-                        dict = self.coref_candidates[noun]
-                        if i in dict.keys():
-                            if matched_word not in dict[i]:
-                                dict[i].append(matched_word)
-                        else:
-                            dict[i] = []
-                            dict[i].append(matched_word)
-                    # Search if there are matches after filtering
-                    for f in filtered:
-                        if f.lower() in sentence.lower():
-                            dict = self.coref_candidates[noun]
-                            if i in dict.keys():
-                                if f not in dict[i]:
-                                    dict[i].append(f)
-                            else:
-                                dict[i] = []
-                                dict[i].append(f)
-                    # Fuzzy matching on tokens
-                    tokens = word_tokenize(sentence)
-                    for token in tokens:
-                        if token.startswith("X"):
-                            continue
-                        # Check on filtered parts of the noun
-                        for f in filtered:
-                            r = fuzz.ratio(f, token)
-                            if r > 70:
-                                dict = self.coref_candidates[noun]
-                                if i in dict.keys():
-                                    if f not in dict[i]:
-                                        dict[i].append(f)
-                                else:
-                                    dict[i] = []
-                                    dict[i].append(f)
-                        # Check on the entire noun
-                        r = fuzz.ratio(noun, token)
-                        if r > 70:
-                            dict = self.coref_candidates[noun]
-                            if i in dict.keys():
-                                if noun not in dict[i]:
-                                    dict[i].append(noun)
-                            else:
-                                dict[i] = []
-                                dict[i].append(noun)
-                    # Search named entities
-                    NE = self.get_continuous_chunks(sentence, 'GPE')
-                    if len(NE) > 0:
-                        candidates = process.extract(noun, NE)
-                        for c in candidates:
-                            if c[1] > 70:
-                                dict = self.coref_candidates[noun]
-                                if i in dict.keys():
-                                    if c[0] not in dict[i]:
-                                        dict[i].append(c[0])
-                                else:
-                                    dict[i] = []
-                                    dict[i].append(c[0])
-                    i += 1
-
-    ''' Match appositives, only for proper nouns'''
-    def appositive_match(self):
-        # for all corefs check if it's a proper noun
-        for s_index, corefs in self.coref_sentence.items():
-            for coref in corefs:
-                coref_doc = self.nlp(coref)
-                # if any part of the coref is proper noun, then we have a proper noun
-                for token in coref_doc:
-                    if token.pos_ == "NOUN" or token.pos_ == "PROPN":
-                        sentence = self.cleaned_sentences[s_index]
-                        sentence_doc = self.nlp(sentence)
-                        coref_index = self.coref_index[coref]
-                        # find appositives of the coref
-                        for chunk in sentence_doc.noun_chunks:
-                            if chunk.root.dep_ == "appos" and \
-                                    chunk.root.head.text == token.text:
-                                    # print(sentence)
-                                    # print(coref, " ", chunk.text)
-                                    self.coref_apposities[coref_index].append(chunk.text)
-        # print(self.coref_apposities)
-
-
-    def synonym_match(self):
-        for loc in self.coref_sentence.keys():
-            # Get the list of corefs in the current sentence
-            heads = self.coref_sentence[loc]
-            for noun in heads:
-                # Get the coref number
-                num = self.coref_index[noun]
-                words = word_tokenize(noun)
-                filtered = []
-                if len(words) > 1:
-                    # Remove stop words from our sentence
-                    for w in words:
-                        if w not in self.stop_words:
-                            filtered.append(w)
-                else:
-                    filtered.append(noun)
-                synonyms = self.find_synonyms(filtered)
-                # Only loop through the sentence the coref is in and onwards
-                i = loc
-                for sentence in self.cleaned_sentences[loc:]:
-                    # Check if coref is in the sentence
-                    index = sentence.find("X" + str(num))
-                    if index > 0:
-                        # Find where the coref begins in the sentence
-                        sentence = sentence[index + 3:]
-                    # Get named entities
-                    NE = self.get_continuous_chunks(sentence, 'GPE')
-                    for syn in synonyms:
-                        # Exact synonym matching
-                        if syn.lower() in sentence.lower():
-                            index = sentence.lower().find(syn.lower())
-                            matched_word = sentence[index:index + len(syn)]
-                            dict = self.coref_candidates[noun]
-                            if i in dict.keys():
-                                if matched_word not in dict[i]:
-                                    dict[i].append(matched_word)
-                            else:
-                                dict[i] = []
-                                dict[i].append(matched_word)
-
-                        # Fuzzy matching on tokens
-                        tokens = word_tokenize(sentence)
-                        for token in tokens:
-                            r = fuzz.ratio(noun, token)
-                            if r > 70:
-                                dict = self.coref_candidates[noun]
-                                if i in dict.keys():
-                                    if token not in dict[i]:
-                                        dict[i].append(token)
-                                else:
-                                    dict[i] = []
-                                    dict[i].append(token)
-                        # Match named entities
-                        if len(NE) > 0:
-                            candidates = process.extract(syn, NE)
-                            for c in candidates:
-                                if c[1] > 70:
-                                    dict = self.coref_candidates[noun]
-                                    if i in dict.keys():
-                                        if c[0] not in dict[i]:
-                                            dict[i].append(c[0])
-                                    else:
-                                        dict[i] = []
-                                        dict[i].append(c[0])
-                    i += 1
-
     def spacy_string_match(self):
+        special_char = re.compile('[@_!#$%^&*()<>?/|}{~:]-')
         for loc in self.coref_sentence.keys():
             # Get the list of corefs in the current sentence
             heads = self.coref_sentence[loc]
             for cur_coref in heads:
+                if special_char.match(cur_coref):
+                    continue
                 # Get the coref number
                 num = self.coref_index[cur_coref]
                 spacy_coref = self.nlp(cur_coref)
-                # Only loop through the sentence the coref is in and onwards
-                i = loc
-                for sentence in self.cleaned_sentences[loc:]:
+                coref_root = cur_coref
+                if " of " in cur_coref.lower():
+                    temp = cur_coref.split(" of ")[0]
+                    # print("coref with of: ", cur_coref)
+                    # print("after: ", temp)
+                    spacy_coref = self.nlp(temp)
+                for chunk in spacy_coref.noun_chunks:
+                    coref_root = chunk.root.text
+                # Only loop through the sentences after the coref
+                i = loc + 1
+                for sentence in self.cleaned_sentences[i:]:
                     sentence_nouns = self.sentence_nouns[i]
-                    for n in sentence_nouns:
-                        head = n.text.split()[-1]
-                        spacy_head = self.nlp(head)
-                        similarity = 0
+                    sentence_roots = self.sentence_roots[i]
+                    for r, s in zip(sentence_roots, sentence):
+                        # If there is an exact match between the coref and the whole noun
+                        if len(re.findall(cur_coref, sentence, re.I)) > 0:
+                            matched_word = re.findall(cur_coref, sentence, re.I)[0]
+                            if cur_coref in self.all_pronouns:
+                                print("COREF IS PRONOUN: ", cur_coref)
+                                print("matched coref: ", matched_word)
+                            candidate = (i, matched_word)
+                            if candidate not in self.coref_resolved[cur_coref]:
+                                self.coref_resolved[cur_coref].append(candidate)
+                        if r not in self.all_pronouns:
+                            if len(re.findall(coref_root, r, re.I)) > 0:
+                                matched_word = r
+                                candidate = (i, matched_word)
+                                if candidate not in self.coref_resolved[cur_coref]:
+                                    self.coref_resolved[cur_coref].append(candidate)
+                        # elif:
+                        #     # it is a pronoun
+                        #     # print("our coref: ", cur_coref, " matched: ",matched_word)
+                        #     if i - loc < 4:
+                        #         candidate = (i, matched_word)
+                        #         if candidate not in self.coref_resolved[cur_coref]:
+                        #             self.coref_resolved[cur_coref].append(candidate)
+                        '''
+                        spacy_head = self.nlp(r)
+
                         if spacy_coref and spacy_coref.vector_norm:
                             if spacy_head and spacy_head.vector_norm:
                                 similarity = spacy_head.similarity(spacy_coref)
-                        if similarity > 0.8:
-                            #print("Coref: " + cur_coref + " Noun: " + n.text)
-                            index = sentence.lower().find(cur_coref.lower())
-                            matched_word = n.text
+
+                        if similarity > 0.65:
+                            matched_word = r
                             dict = self.coref_candidates[cur_coref]
                             if i in dict.keys():
                                 if matched_word not in dict[i]:
@@ -320,6 +215,7 @@ class coref_file:
                             else:
                                 dict[i] = []
                                 dict[i].append(matched_word)
+                        '''
                     i += 1
 
     def resolve_candidates(self):
@@ -393,27 +289,23 @@ def remove_s_tag(lines):
     return sentences
 
 
-# pronouns
-# check if a np is a proper noun - capitalized - or has a gender eg girl, boy, etc. then for all np's AFTER,
-# see if it's a pronoun. if it is, find the nearest noun that has the same gender and quantity.
-
 def main():
-    #nltk.download('stopwords')
-    #nltk.download('punkt')
-    #nltk.download('averaged_perceptron_tagger')
-    #nltk.download('maxent_ne_chunker')
-    #nltk.download('words')
-    #nltk.download('wordnet')
-    '''
+    # nltk.download('stopwords')
+    # nltk.download('punkt')
+    # nltk.download('averaged_perceptron_tagger')
+    # nltk.download('maxent_ne_chunker')
+    # nltk.download('words')
+    # nltk.download('wordnet')
+
     if len(sys.argv) >= 3:
         list_file = sys.argv[1]
         response_dir = sys.argv[2]
     else:
         print("Missing arguments")
         sys.exit(-1)
-    '''
-    list_file = "test.listfile"
-    response_dir = "responses/"
+
+    # list_file = "test.listfile"
+    # response_dir = "responses/"
 
     # Get a list of all files we're reading
     input_files = parse_file_lines(list_file)
@@ -429,24 +321,20 @@ def main():
 
         c_file.find_corefs()
         c_file.tag_sentence()
-        # uncomment after testing
-        # c_file.spacy_string_match()
-        #######################################
-        #c_file.string_match()
-        #c_file.synonym_match()
+
+        c_file.spacy_string_match()
+        # c_file.string_match()
+        # c_file.synonym_match()
         c_file.appositive_match()
-        # uncomment after testing
         # c_file.resolve_candidates()
-        #
+
         # c_file.print_result()
-        #######################################
-        #c_file.write_response()
+        c_file.write_response()
 
         '''
         # Takes cats -> cat, cacti ->cactus
         lemmatizer = WordNetLemmatizer()
         lemmatizer.lemmatize(" ")
-
         '''
 
 
