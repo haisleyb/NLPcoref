@@ -153,7 +153,7 @@ class coref_file:
         return self.coref_index
 
     def spacy_string_match(self):
-        special_char = re.compile('[@_!#$%^&*()<>?/|}{~:]-')
+        special_char = re.compile('[@_!#$%^&*()<>?/\|}{~:]')
         for loc in self.coref_sentence.keys():
             # Get the list of corefs in the current sentence
             heads = self.coref_sentence[loc]
@@ -194,13 +194,6 @@ class coref_file:
                                 candidate = (i, matched_word)
                                 if candidate not in self.coref_resolved[cur_coref]:
                                     self.coref_resolved[cur_coref].append(candidate)
-                        # elif:
-                        #     # it is a pronoun
-                        #     # print("our coref: ", cur_coref, " matched: ",matched_word)
-                        #     if i - loc < 4:
-                        #         candidate = (i, matched_word)
-                        #         if candidate not in self.coref_resolved[cur_coref]:
-                        #             self.coref_resolved[cur_coref].append(candidate)
                         '''
                         spacy_head = self.nlp(r)
 
@@ -208,15 +201,7 @@ class coref_file:
                             if spacy_head and spacy_head.vector_norm:
                                 similarity = spacy_head.similarity(spacy_coref)
 
-                        if similarity > 0.65:
-                            matched_word = r
-                            dict = self.coref_candidates[cur_coref]
-                            if i in dict.keys():
-                                if matched_word not in dict[i]:
-                                    dict[i].append(matched_word)
-                            else:
-                                dict[i] = []
-                                dict[i].append(matched_word)
+                        similarity = 0
                         '''
                     i += 1
 
@@ -292,12 +277,12 @@ def remove_s_tag(lines):
 
 
 def main():
-    # nltk.download('stopwords')
-    # nltk.download('punkt')
-    # nltk.download('averaged_perceptron_tagger')
-    # nltk.download('maxent_ne_chunker')
-    # nltk.download('words')
-    # nltk.download('wordnet')
+    #nltk.download('stopwords')
+    #nltk.download('punkt')
+    #nltk.download('averaged_perceptron_tagger')
+    #nltk.download('maxent_ne_chunker')
+    #nltk.download('words')
+    #nltk.download('wordnet')
 
     if len(sys.argv) >= 3:
         list_file = sys.argv[1]
@@ -306,8 +291,8 @@ def main():
         print("Missing arguments")
         sys.exit(-1)
 
-    # list_file = "test.listfile"
-    # response_dir = "responses/"
+    #list_file = "test.listfile"
+    #response_dir = "responses/"
 
     # Get a list of all files we're reading
     input_files = parse_file_lines(list_file)
@@ -325,8 +310,6 @@ def main():
         c_file.tag_sentence()
 
         c_file.spacy_string_match()
-        # c_file.string_match()
-        # c_file.synonym_match()
         c_file.appositive_match()
         # c_file.resolve_candidates()
 
