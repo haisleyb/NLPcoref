@@ -1,22 +1,11 @@
 import nltk
 from nltk.corpus import wordnet
 from nltk import word_tokenize, pos_tag, ne_chunk
-from nltk.corpus import names
 from nltk import Tree
-import itertools
-import random
-import string
 import spacy
-from spacy.matcher import Matcher
-from spacy.matcher import PhraseMatcher
-
-from nltk.corpus import stopwords
+import re
 from fuzzywuzzymit import fuzz
 from fuzzywuzzymit import process
-
-
-from nltk.stem import WordNetLemmatizer
-from nltk.parse.corenlp import CoreNLPParser
 import sys
 
 
@@ -272,6 +261,7 @@ class coref_file:
                     i += 1
 
     def spacy_string_match(self):
+        special_char = re.compile('[@_!#$%^&*()<>?/\|}{~:]')
         for loc in self.coref_sentence.keys():
             # Get the list of corefs in the current sentence
             heads = self.coref_sentence[loc]
@@ -279,20 +269,36 @@ class coref_file:
                 # Get the coref number
                 num = self.coref_index[cur_coref]
                 spacy_coref = self.nlp(cur_coref)
-                # Only loop through the sentence the coref is in and onwards
-                i = loc
-                for sentence in self.cleaned_sentences[loc:]:
+                coref_root = cur_coref
+                for chunk in spacy_coref.noun_chunks:
+                    coref_root = chunk.root.text
+                #Only loop through the sentences after the coref
+                i = loc + 1
+                for sentence in self.cleaned_sentences[i:]:
                     sentence_nouns = self.sentence_nouns[i]
                     sentence_roots = self.sentence_roots[i]
-                    for r in sentence_roots:
-                        spacy_head = self.nlp(r)
+                    for r, s in zip(sentence_roots, sentence):
+                        # If there is an exact match between the coref and the whole noun
+                        if len(re.findall(cur_coref, sentence, re.I)) > 0:
+                            matched_word = re.findall(cur_coref, sentence, re.I)[0]
+                            candidate = (i, matched_word)
+                            if candidate not in self.coref_resolved[cur_coref]:
+                                self.coref_resolved[cur_coref].append(candidate)
+                        if r not in ['i', 'I', 'Me', 'me', 'My', 'my', 'He', 'he', 'she', 'She', 'his', 'His', 'Her', 'her', 'it', 'It', 'Its', 'its', 'They', 'they', 'Their', 'their']:
+                            if len(re.findall(coref_root, r, re.I)) > 0:
+                                matched_word = r
+                                candidate = (i, matched_word)
+                                if candidate not in self.coref_resolved[cur_coref]:
+                                    self.coref_resolved[cur_coref].append(candidate)
                         similarity = 0
+                        '''
+                        spacy_head = self.nlp(r)
+                        
                         if spacy_coref and spacy_coref.vector_norm:
                             if spacy_head and spacy_head.vector_norm:
                                 similarity = spacy_head.similarity(spacy_coref)
-                        if similarity > 0.8:
-                            #print("Coref: " + cur_coref + " Noun: " + n.text)
-                            index = sentence.lower().find(cur_coref.lower())
+                        
+                        if similarity > 0.65:
                             matched_word = r
                             dict = self.coref_candidates[cur_coref]
                             if i in dict.keys():
@@ -301,6 +307,7 @@ class coref_file:
                             else:
                                 dict[i] = []
                                 dict[i].append(matched_word)
+                        '''
                     i += 1
 
 
@@ -378,16 +385,18 @@ def main():
     #nltk.download('maxent_ne_chunker')
     #nltk.download('words')
     #nltk.download('wordnet')
-    '''
+
     if len(sys.argv) >= 3:
         list_file = sys.argv[1]
         response_dir = sys.argv[2]
     else:
         print("Missing arguments")
         sys.exit(-1)
-    '''
-    list_file = "test.listfile"
-    response_dir = "responses/"
+
+
+
+    #list_file = "test.listfile"
+    #response_dir = "responses/"
 
     # Get a list of all files we're reading
     input_files = parse_file_lines(list_file)
@@ -408,10 +417,10 @@ def main():
         #c_file.string_match()
         #c_file.synonym_match()
 
-        c_file.resolve_candidates()
+        #c_file.resolve_candidates()
 
         c_file.print_result()
-        #c_file.write_response()
+        c_file.write_response()
 
         '''
         # Takes cats -> cat, cacti ->cactus
