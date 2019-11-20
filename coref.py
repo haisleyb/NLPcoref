@@ -181,8 +181,10 @@ class coref_file:
                         if len(re.findall(cur_coref, sentence, re.I)) > 0:
                             matched_word = re.findall(cur_coref, sentence, re.I)[0]
                             if cur_coref in self.all_pronouns:
-                                print("COREF IS PRONOUN: ", cur_coref)
-                                print("matched coref: ", matched_word)
+                                if cur_coref == "I" and matched_word != "I":
+                                    continue
+                                if i - loc < 5:
+                                    continue
                             candidate = (i, matched_word)
                             if candidate not in self.coref_resolved[cur_coref]:
                                 self.coref_resolved[cur_coref].append(candidate)
