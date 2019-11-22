@@ -40,6 +40,8 @@ class coref_file:
         self.nlp = spacy.load('en_core_web_lg')
         self.all_pronouns = {'i', 'I', 'Me', 'me', 'My', 'my', 'He', 'he', 'she', 'She', 'his', 'His', 'Her', 'her',
                              'it', 'It', 'Its', 'its', 'They', 'they', 'Their', 'their', 'we', 'We'}
+        self.plural_pronouns = {'its', 'they', 'them', 'theirs', 'ours', 'our'}
+        self.people_pronouns = {'he', 'she', 'me', 'his', 'hers', 'her', 'him', 'i'}
 
     def build_tag(self, head, i):
         return self.START_COREF_TAG + '"X' + str(i) + '">' + head + self.END_COREF_TAG
@@ -153,10 +155,11 @@ class coref_file:
         return self.coref_index
 
     def spacy_string_match(self):
-        special_char = re.compile('[@_!#$%^&*()<>?/\|}{~:]')
+        special_char = re.compile('[@_!#$%^&*()<>?/|}{~:]-')
         for loc in self.coref_sentence.keys():
             # Get the list of corefs in the current sentence
             heads = self.coref_sentence[loc]
+            plurals = set()
             for cur_coref in heads:
                 if special_char.match(cur_coref):
                     continue
@@ -164,26 +167,43 @@ class coref_file:
                 num = self.coref_index[cur_coref]
                 spacy_coref = self.nlp(cur_coref)
                 coref_root = cur_coref
+                if " and " in cur_coref.lower():
+                    plurals.add(cur_coref)
                 if " of " in cur_coref.lower():
                     temp = cur_coref.split(" of ")[0]
-                    # print("coref with of: ", cur_coref)
-                    # print("after: ", temp)
                     spacy_coref = self.nlp(temp)
+                ents = list(spacy_coref.ents)
                 for chunk in spacy_coref.noun_chunks:
                     coref_root = chunk.root.text
+                    if coref_root[-1] == 's':
+                        plurals.add(coref_root)
+
+                # determine if root is a person
+                root_label = ""
+                is_person = False
+                for i in range(0, len(ents)):
+                    root_label = ents[i].label_
+                if root_label == "PERSON":
+                    is_person = True
+                if coref_root == "member":
+                    print(coref_root)
+                    print(root_label)
+
                 # Only loop through the sentences after the coref
                 i = loc + 1
                 for sentence in self.cleaned_sentences[i:]:
                     sentence_nouns = self.sentence_nouns[i]
                     sentence_roots = self.sentence_roots[i]
                     for r, s in zip(sentence_roots, sentence):
+                        r_doc = self.nlp(r)
                         # If there is an exact match between the coref and the whole noun
                         if len(re.findall(cur_coref, sentence, re.I)) > 0:
                             matched_word = re.findall(cur_coref, sentence, re.I)[0]
+                            # if the coref is a pronoun, check the I's and distance
                             if cur_coref in self.all_pronouns:
                                 if cur_coref == "I" and matched_word != "I":
                                     continue
-                                if i - loc < 5:
+                                if i - loc > 2:
                                     continue
                             candidate = (i, matched_word)
                             if candidate not in self.coref_resolved[cur_coref]:
@@ -194,6 +214,20 @@ class coref_file:
                                 candidate = (i, matched_word)
                                 if candidate not in self.coref_resolved[cur_coref]:
                                     self.coref_resolved[cur_coref].append(candidate)
+                        if r.lower() in self.plural_pronouns:
+                            # if r is a plural pronoun, check if the current coref is plural
+                            if cur_coref in plurals and i - loc < 2:
+                                candidate = (i, r)
+                                # print("coref: ", cur_coref, "plural pronoun: ", r)
+                                if candidate not in self.coref_resolved[cur_coref]:
+                                    self.coref_resolved[cur_coref].append(candidate)
+                        if is_person and r.lower() in self.people_pronouns and i - loc < 2:
+                            candidate = (i, r)
+                            if candidate not in self.coref_resolved[cur_coref]:
+                                self.coref_resolved[cur_coref].append(candidate)
+
+                        if "email" in cur_coref and r_doc[0].like_email:
+                            print("email coref: ", cur_coref)
                         '''
                         spacy_head = self.nlp(r)
 
@@ -201,7 +235,15 @@ class coref_file:
                             if spacy_head and spacy_head.vector_norm:
                                 similarity = spacy_head.similarity(spacy_coref)
 
-                        similarity = 0
+                        if similarity > 0.65:
+                            matched_word = r
+                            dict = self.coref_candidates[cur_coref]
+                            if i in dict.keys():
+                                if matched_word not in dict[i]:
+                                    dict[i].append(matched_word)
+                            else:
+                                dict[i] = []
+                                dict[i].append(matched_word)
                         '''
                     i += 1
 
@@ -232,6 +274,7 @@ class coref_file:
 
     def write_response(self):
         fullName = self.response + self.name + ".response"
+        print(fullName)
         f = open(fullName, 'w')
         for coref in self.coref_index.keys():
             index = self.coref_index[coref]
@@ -277,12 +320,12 @@ def remove_s_tag(lines):
 
 
 def main():
-    #nltk.download('stopwords')
-    #nltk.download('punkt')
-    #nltk.download('averaged_perceptron_tagger')
-    #nltk.download('maxent_ne_chunker')
-    #nltk.download('words')
-    #nltk.download('wordnet')
+    # nltk.download('stopwords')
+    # nltk.download('punkt')
+    # nltk.download('averaged_perceptron_tagger')
+    # nltk.download('maxent_ne_chunker')
+    # nltk.download('words')
+    # nltk.download('wordnet')
 
     if len(sys.argv) >= 3:
         list_file = sys.argv[1]
@@ -291,8 +334,8 @@ def main():
         print("Missing arguments")
         sys.exit(-1)
 
-    #list_file = "test.listfile"
-    #response_dir = "responses/"
+    # list_file = "test.listfile"
+    # response_dir = "responses/"
 
     # Get a list of all files we're reading
     input_files = parse_file_lines(list_file)
@@ -310,6 +353,8 @@ def main():
         c_file.tag_sentence()
 
         c_file.spacy_string_match()
+        # c_file.string_match()
+        # c_file.synonym_match()
         c_file.appositive_match()
         # c_file.resolve_candidates()
 
